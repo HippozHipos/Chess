@@ -610,11 +610,11 @@ void RenderPiece(olc::PixelGameEngine* pge, const Board& board, const Piece& pie
 		olc::vi2d square = screenToSquare(position, board);
 		if (!moving)
 		{
-			pge->DrawStringDecal(square * board.squareSize + textOffset, text, color, { 1.0f, 3.0f });
+			pge->DrawStringDecal(square * board.squareSize + textOffset, text, color, { 1.3f, 3.0f });
 		}
 		else
 		{
-			pge->DrawStringDecal(piece.position, text, color, { 1.0f, 3.0f });
+			pge->DrawStringDecal(piece.position - olc::vf2d{ 25.0f, 25.0f }, text, color, { 2.8f, 3.0f });
 		}
 	};
 
