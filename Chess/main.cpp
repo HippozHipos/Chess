@@ -5,6 +5,15 @@
 #include "pixelGameEngine.h"
 #pragma warning(pop)
 
+enum class State
+{
+	PRESSTOSTART,
+	SHOWINGTURN,
+	GAMEPLAY,
+	SHOWINGWINNER
+};
+
+
 struct PieceString
 {
 	static const std::string pawn;
@@ -71,7 +80,7 @@ public:
 		return color;
 	}
 
-	std::vector<olc::vi2d> GetValidSquares(std::vector<Piece*> pieces, const olc::vf2d& position, const Board& board) const;
+	std::vector<olc::vi2d> GetValidSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Board& board) const;
 
 	bool operator==(const Piece& other)
 	{
@@ -182,10 +191,11 @@ Piece* getPieceInSquare(const olc::vi2d& square, const std::vector<Piece*> piece
 
 struct MovementValidator
 {
-	virtual std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d&, const Board&, std::vector<Piece*>&) = 0;
-	std::vector<olc::vi2d> GetOccupiableSquares(std::vector<Piece*>& pieces, const olc::vf2d& position, const Piece& pawn, const Board& board)
+	virtual std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d&, const Board&, const std::vector<Piece*>&) = 0;
+	std::vector<olc::vi2d> GetOccupiableSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Piece& pawn, const Board& board)
 	{
 		std::vector<olc::vi2d> validSquares = GetValidSquares(pawn, position, board, pieces);
+		validSquares.push_back(position);
 		for (auto& piece : pieces)
 		{
 			if (!(*piece == pawn))
@@ -211,7 +221,7 @@ struct MovementValidator
 
 struct PawnMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece& pawn, const olc::vf2d& position, const Board& board, std::vector<Piece*>&) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece& pawn, const olc::vf2d& position, const Board& board, const std::vector<Piece*>&) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 		if (pawn.GetColor() == Piece::Color::BLACK)
@@ -229,7 +239,7 @@ struct PawnMovementValidator : public MovementValidator
 
 struct KingMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d& position, const Board& board, std::vector<Piece*>&) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d& position, const Board& board, const std::vector<Piece*>&) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 
@@ -244,7 +254,7 @@ struct KingMovementValidator : public MovementValidator
 
 struct QueenMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, std::vector<Piece*>& pieces) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, const std::vector<Piece*>& pieces) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 
@@ -276,7 +286,7 @@ struct QueenMovementValidator : public MovementValidator
 
 struct RookMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, std::vector<Piece*>& pieces) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, const std::vector<Piece*>& pieces) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 
@@ -306,7 +316,7 @@ struct RookMovementValidator : public MovementValidator
 
 struct BishopMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, std::vector<Piece*>& pieces) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, const std::vector<Piece*>& pieces) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 
@@ -336,7 +346,7 @@ struct BishopMovementValidator : public MovementValidator
 
 struct KnightMovementValidator : public MovementValidator
 {
-	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, std::vector<Piece*>& pieces) override
+	std::vector<olc::vi2d> GetValidSquares(const Piece& queen, const olc::vf2d& position, const Board& board, const std::vector<Piece*>& pieces) override
 	{
 		std::vector<olc::vi2d> outValidSquares;
 
@@ -357,6 +367,223 @@ struct KnightMovementValidator : public MovementValidator
 		return outValidSquares;
 	}
 };
+
+
+Piece::Piece(const olc::vf2d& position, Color color, MovementValidator* validator) :
+	position{ position }, color{ color }, movementValidator{ validator }
+{
+}
+
+Piece::~Piece() { delete movementValidator; };
+
+std::vector<olc::vi2d> Piece::GetValidSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Board& board) const
+{
+	return movementValidator->GetOccupiableSquares(pieces, position, *this, board);
+}
+
+Pawn::Pawn(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new PawnMovementValidator{} }
+{
+}
+
+King::King(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new KingMovementValidator{} }
+{
+}
+
+Queen::Queen(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new QueenMovementValidator{} }
+{
+}
+
+Rook::Rook(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new RookMovementValidator{} }
+{
+}
+
+Bishop::Bishop(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new BishopMovementValidator{} }
+{
+}
+
+Knight::Knight(const olc::vf2d& position, Color color) :
+	Piece{ position, color, new KnightMovementValidator{} }
+{
+}
+
+class Controller
+{
+public:
+	Controller(const olc::PixelGameEngine* const pge) :
+		pge{ pge }
+	{
+	}
+
+public:
+	void LetUserDragDropPieces(const std::vector<Piece*>& pieces, const Board& board)
+	{
+		UpdateGrabbedPieceMoving(FilterPieces(pieces), board);
+
+		if (moving && grabbedPiece != nullptr)
+		{
+			grabbedPiece->position = (olc::vf2d)pge->GetMousePos();
+		}
+	}
+
+	double UpdateTurn(olc::PixelGameEngine* const pge, double eachTurnTime, bool returned, State& state)
+	{
+		std::chrono::high_resolution_clock::time_point now = std::chrono::high_resolution_clock::now();
+		std::chrono::duration<double> elapsedTime = std::chrono::duration_cast<std::chrono::duration<double>>(now - startTime);
+
+		if (elapsedTime.count() > eachTurnTime)
+		{
+			startTime = now;
+			turnControl = !turnControl;
+		}
+
+		if (pge->GetMouse(0).bReleased)
+		{
+			if (lastGrabbedPiece != nullptr && grabbedPiece == nullptr && !returned)
+			{
+				startTime = now;
+				turnControl = !turnControl;
+			}
+		}
+
+		turn = turnControl ? Turn::BLACK : Turn::WHITE;
+		return elapsedTime.count();
+	}
+
+	Piece* GetGrabbedPiece() const
+	{
+		if (grabbedPiece != nullptr)
+			return grabbedPiece;
+		return nullptr;
+	}
+
+	olc::vf2d GetLastPosition()
+	{
+		return lastPosition;
+	}
+
+	Piece* GetLastGrabbedpiece() const
+	{
+		if (lastGrabbedPiece != nullptr)
+			return lastGrabbedPiece;
+		return nullptr;
+	}
+
+	std::string CurrentTurn()
+	{
+		if (turn == Turn::BLACK) return "Black"; else return "White";
+	}
+
+private:
+	olc::vi2d GetMouseInSquare(const Board& board)
+	{
+		olc::vi2d mouse = pge->GetMousePos();
+		return screenToSquare((olc::vf2d)mouse, board);
+	}
+
+	void UpdateGrabbedPieceMoving(const std::vector<Piece*>& pieces, const Board& board)
+	{
+		for (auto& piece : pieces)
+		{
+			if (pge->GetMouse(0).bPressed)
+			{
+				lastGrabbedPiece = getPieceInSquare(GetMouseInSquare(board), pieces, board);
+				if (lastGrabbedPiece != nullptr)
+				{
+					lastPosition = lastGrabbedPiece->position;
+				}
+			}
+
+			if (pge->GetMouse(0).bHeld)
+			{
+				if (grabbedPiece == nullptr)
+				{
+					grabbedPiece = getPieceInSquare(GetMouseInSquare(board), pieces, board);
+					if (grabbedPiece != nullptr)
+					{
+						moving = true;
+					}
+				}
+			}
+		}
+
+		if (pge->GetMouse(0).bReleased)
+		{
+			moving = false;
+			grabbedPiece = nullptr;
+		}
+	}
+
+	std::vector<Piece*> FilterPieces(const std::vector<Piece*>& pieces)
+	{
+		std::vector<Piece*> outPieces;
+		if (turn == Turn::WHITE)
+		{
+			for (auto& piece : pieces)
+			{
+				if (piece->GetColor() == Piece::Color::WHITE)
+				{
+					outPieces.push_back(piece);
+				}
+			}
+		}
+
+		else
+		{
+			for (auto& piece : pieces)
+			{
+				if (piece->GetColor() == Piece::Color::BLACK)
+				{
+					outPieces.push_back(piece);
+				}
+			}
+		}
+
+		return outPieces;
+	}
+
+private:
+	enum class Turn
+	{
+		BLACK,
+		WHITE
+	};
+
+private:
+	std::chrono::high_resolution_clock::time_point startTime = std::chrono::high_resolution_clock::now();
+	const olc::PixelGameEngine* const pge;
+	Piece* grabbedPiece = nullptr;
+	Piece* lastGrabbedPiece = nullptr;
+	olc::vf2d lastPosition{};
+	Turn turn = Turn::WHITE;
+	bool turnControl = true;
+	bool moving = true;
+};
+
+bool ReturnToLastPosition(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, Piece& piece, const Board& board)
+{
+	if (pge->GetMouse(0).bReleased)
+	{
+		bool notReturn = false;
+		std::vector<olc::vi2d> squares = piece.GetValidSquares(pieces, lastPosition, board);
+		for (auto& square : squares)
+		{
+			notReturn |= screenToSquare(piece.position, board) == square;
+		}
+
+		if (squares.empty() || !notReturn)
+		{
+			piece.position = lastPosition;
+			return true;
+		}
+	}
+
+	return false;
+}
 
 void DrawBoard(olc::PixelGameEngine* pge, const Board& board)
 {
@@ -391,9 +618,7 @@ void RenderPiece(olc::PixelGameEngine* pge, const Board& board, const Piece& pie
 		}
 	};
 
-	Piece::Type type = piece.GetType();
-
-	switch (type)
+	switch (piece.GetType())
 	{
 	case Piece::Type::PAWN:
 		RenderInSquare(piece.position, PieceString::pawn);
@@ -416,91 +641,6 @@ void RenderPiece(olc::PixelGameEngine* pge, const Board& board, const Piece& pie
 	}
 }
 
-class Controller
-{
-public:
-	Controller(const olc::PixelGameEngine* const pge) :
-		pge{ pge }
-	{
-	}
-
-public:
-	void LetUserDragDropPieces(std::vector<Piece*> pieces, const Board& board)
-	{
-		UpdateGrabbedPieceMoving(pieces, board);
-		if (moving && grabbedPiece != nullptr)
-		{
-			grabbedPiece->position = (olc::vf2d)pge->GetMousePos();
-		}
-	}
-
-	Piece* GetGrabbedPiece() const
-	{
-		if (grabbedPiece != nullptr)
-			return grabbedPiece;
-		return nullptr;
-	}
-
-	olc::vf2d GetLastPosition()
-	{
-		return lastPosition;
-	}
-
-	Piece* GetLastGrabbedpiece() const
-	{
-		if (lastGrabbedPiece != nullptr)
-			return lastGrabbedPiece;
-		return nullptr;
-	}
-
-private:
-	olc::vi2d GetMouseInSquare(const Board& board)
-	{
-		olc::vi2d mouse = pge->GetMousePos();
-		return screenToSquare((olc::vf2d)mouse, board);
-	}
-
-	void UpdateGrabbedPieceMoving(std::vector<Piece*> pieces, const Board& board)
-	{
-		for (auto& piece : pieces)
-		{
-			if (pge->GetMouse(0).bPressed)
-			{
-				lastGrabbedPiece = getPieceInSquare(GetMouseInSquare(board), pieces, board);
-				if (lastGrabbedPiece != nullptr)
-				{
-					lastPosition = lastGrabbedPiece->position;
-				}
-			}
-
-			if (pge->GetMouse(0).bHeld)
-			{
-				if (grabbedPiece == nullptr)
-				{
-					grabbedPiece = getPieceInSquare(GetMouseInSquare(board), pieces, board);
-					if (grabbedPiece != nullptr)
-					{
-						moving = true;
-					}
-				}
-			}
-		}
-
-		if (pge->GetMouse(0).bReleased)
-		{
-			moving = false;
-			grabbedPiece = nullptr;
-		}
-	}
-
-private:
-	const olc::PixelGameEngine* const pge;
-	Piece* grabbedPiece = nullptr;
-	Piece* lastGrabbedPiece = nullptr;
-	olc::vf2d lastPosition{};
-	bool moving = true;
-};
-
 void DrawOccupiableSquares(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, const Board& board, const Piece& piece)
 {
 
@@ -511,24 +651,6 @@ void DrawOccupiableSquares(olc::PixelGameEngine* pge, const std::vector<Piece*>&
 		pge->FillRectDecal(squareToScreen(square, board), board.squareSize, olc::Pixel{ 100, 250, 100, 80 });
 	}
 	
-}
-
-void ReturnToLastPosition(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, Piece& piece, const Board& board)
-{
-	if (pge->GetMouse(0).bReleased)
-	{
-		bool notReturn = false;
-		std::vector<olc::vi2d> squares = piece.GetValidSquares(pieces, lastPosition, board);
-		for (auto& square : squares)
-		{
-			notReturn |= screenToSquare(piece.position, board) == square;
-		}
-
-		if (squares.empty() || !notReturn)
-		{
-			piece.position = lastPosition;
-		}
-	}
 }
 
 class ChessGame : public olc::PixelGameEngine
@@ -586,6 +708,8 @@ private:
 public:
 	bool OnUserCreate() override
 	{
+		sidePannelSize = { 100, ScreenHeight() };
+		bottomPannelSize = { ScreenWidth(), 100 };
 		board = Board({ ScreenWidth(), ScreenHeight() }, { 8, 8 });
 		InitPieces();
 		return true;
@@ -593,29 +717,48 @@ public:
 
 	bool OnUserUpdate(float elapsedTime) override
 	{
-		controller.LetUserDragDropPieces(pieces, board);
-		Piece* lastGrabbed = controller.GetLastGrabbedpiece();
-		if (lastGrabbed != nullptr)
+		switch (state)
 		{
-			ReturnToLastPosition(this, pieces, controller.GetLastPosition(), *lastGrabbed, board);
+		case State::GAMEPLAY:
+		{
+			Piece* lastGrabbed = controller.GetLastGrabbedpiece();
+			bool returned = false;
+			controller.LetUserDragDropPieces(pieces, board);
+			if (lastGrabbed != nullptr)
+			{
+				returned = ReturnToLastPosition(this, pieces, controller.GetLastPosition(), *lastGrabbed, board);
+			}
+			controller.UpdateTurn(this, 10.0, returned, state);
+
+			//Drawing
+			DrawBoard(this, board);
+			Piece* currentGrabbed = controller.GetGrabbedPiece();
+			if (currentGrabbed != nullptr)
+			{
+				DrawOccupiableSquares(this, pieces, controller.GetLastPosition(), board, *currentGrabbed);
+			}
+
+			for (int i = 0; i < nTotalPieces; i++)
+			{
+				Piece& piece = *pieces[i];
+				RenderPiece(this, board, piece, piece.GetColor() == Piece::Color::BLACK ? olc::BLACK : olc::WHITE, piece == *controller.GetGrabbedPiece());
+			}
+
+			DrawStringDecal({ 200, 200 }, controller.CurrentTurn(), olc::RED);
+
+			/*FillRectDecal({ (float)ScreenWidth() - sidePannelSize.x, 0.0f }, (olc::vf2d)sidePannelSize, olc::Pixel{ 100, 100, 100 });
+			FillRectDecal({ 0.0f, (float)ScreenHeight() - bottomPannelSize.y }, (olc::vf2d)bottomPannelSize, olc::Pixel{ 100, 100, 100 });*/
+			break;
+		}
 		}
 
-		DrawBoard(this, board);
-		Piece* currentGrabbed = controller.GetGrabbedPiece();
-		if (currentGrabbed != nullptr)
-		{
-			DrawOccupiableSquares(this, pieces, controller.GetLastPosition(), board, *currentGrabbed);
-		}
-
-		for (int i = 0; i < nTotalPieces; i++)
-		{
-			Piece& piece = *pieces[i];
-			RenderPiece(this, board, piece, piece.GetColor() == Piece::Color::BLACK ? olc::BLACK : olc::WHITE, piece == *controller.GetGrabbedPiece());
-		}
 		return true;
 	}
 
 private:
+	olc::vi2d sidePannelSize;
+	olc::vi2d bottomPannelSize;
+	State state = State::GAMEPLAY;
 	static constexpr int nTotalPieces = 16 * 2;
 	std::vector<Piece*> pieces{ };
 	int decalLayer;
@@ -631,44 +774,5 @@ int main()
 	return 0;
 }
 
-Piece::Piece(const olc::vf2d& position, Color color, MovementValidator* validator) :
-	position{ position }, color{ color }, movementValidator{ validator }
-{
-}
 
-Piece::~Piece() { delete movementValidator; };
 
-Pawn::Pawn(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new PawnMovementValidator{} }
-{
-}
-
-King::King(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new KingMovementValidator{} }
-{
-}
-
-Queen::Queen(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new QueenMovementValidator{} }
-{
-}
-
-Rook::Rook(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new RookMovementValidator{} }
-{
-}
-
-Bishop::Bishop(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new BishopMovementValidator{} }
-{
-}
-
-Knight::Knight(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new KnightMovementValidator{} }
-{
-}
-
-std::vector<olc::vi2d> Piece::GetValidSquares(std::vector<Piece*> pieces, const olc::vf2d& position, const Board& board) const
-{
-	return movementValidator->GetOccupiableSquares(pieces, position, *this, board);
-}
