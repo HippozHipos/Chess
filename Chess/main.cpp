@@ -197,7 +197,6 @@ struct MovementValidator
 						validSquares.erase(std::remove(validSquares.begin(), validSquares.end(), validSquare), validSquares.end());
 					}
 
-					//std::cout << validSquare << '\n';
 					if (validSquare.x < 0 || validSquare.x > 7 || validSquare.y < 0 || validSquare.y > 7)
 					{
 						validSquares.erase(std::remove(validSquares.begin(), validSquares.end(), validSquare), validSquares.end());
@@ -589,10 +588,6 @@ public:
 	{
 		board = Board({ ScreenWidth(), ScreenHeight() }, { 8, 8 });
 		InitPieces();
-
-		decalLayer = CreateLayer();
-		//EnableLayer(decalLayer, true);
-
 		return true;
 	}
 
@@ -604,27 +599,6 @@ public:
 		{
 			ReturnToLastPosition(this, pieces, controller.GetLastPosition(), *lastGrabbed, board);
 		}
-
-		//Drawing
-		/*Clear(olc::BLANK);
-		SetDrawTarget(decalLayer);
-		DrawBoard(this, board);
-
-		for (int i = 0; i < nTotalPieces; i++)
-		{
-			Piece& piece = *pieces[i];
-			RenderPiece(this, board, piece, piece.GetColor() == Piece::Color::BLACK ? olc::BLACK : olc::WHITE, piece == *controller.GetGrabbedPiece());
-		}
-
-		Piece* currentGrabbed = controller.GetGrabbedPiece();
-		if (currentGrabbed != nullptr)
-		{
-			SetDrawTarget(nullptr);
-			SetPixelMode(olc::Pixel::ALPHA);
-			DrawOccupiableSquares(this, pieces, controller.GetLastPosition(), board, *currentGrabbed);
-			SetPixelMode(olc::Pixel::NORMAL);
-		}*/
-
 
 		DrawBoard(this, board);
 		Piece* currentGrabbed = controller.GetGrabbedPiece();
