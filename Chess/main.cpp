@@ -13,7 +13,6 @@ enum class State
 	SHOWINGWINNER
 };
 
-
 struct PieceString
 {
 	static const std::string pawn;
@@ -47,6 +46,8 @@ public:
 };
 
 struct MovementValidator;
+struct KillableFinder;
+
 class Piece
 {
 public:
@@ -67,7 +68,7 @@ public:
 	};
 
 public:
-	Piece(const olc::vf2d& position, Color color, MovementValidator* validator);
+	Piece(const olc::vf2d& position, Color color, MovementValidator* validator, KillableFinder* killableFinder);
 
 	virtual ~Piece();
 
@@ -81,6 +82,7 @@ public:
 	}
 
 	std::vector<olc::vi2d> GetValidSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Board& board) const;
+	std::vector<Piece*> GetKillablePieces(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) const;
 
 	bool operator==(const Piece& other)
 	{
@@ -92,6 +94,7 @@ private:
 
 protected:
 	MovementValidator* movementValidator;
+	KillableFinder* killableFinder;
 
 };
 
@@ -191,7 +194,6 @@ Piece* getPieceInSquare(const olc::vi2d& square, const std::vector<Piece*> piece
 
 struct MovementValidator
 {
-	virtual std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d&, const Board&, const std::vector<Piece*>&) = 0;
 	std::vector<olc::vi2d> GetOccupiableSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Piece& pawn, const Board& board)
 	{
 		std::vector<olc::vi2d> validSquares = GetValidSquares(pawn, position, board, pieces);
@@ -217,6 +219,9 @@ struct MovementValidator
 		return validSquares;
 	}
 	virtual ~MovementValidator() = default;
+
+protected:
+	virtual std::vector<olc::vi2d> GetValidSquares(const Piece&, const olc::vf2d&, const Board&, const std::vector<Piece*>&) = 0;
 };
 
 struct PawnMovementValidator : public MovementValidator
@@ -368,46 +373,355 @@ struct KnightMovementValidator : public MovementValidator
 	}
 };
 
+struct KillableFinder
+{
+	virtual std::vector<Piece*> FindAndReturn(const std::vector<Piece*>&, const Piece&, const olc::vf2d&, const Board&) = 0;
+};
 
-Piece::Piece(const olc::vf2d& position, Color color, MovementValidator* validator) :
-	position{ position }, color{ color }, movementValidator{ validator }
+struct PawnKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		auto addKillables = [&](const Piece::Color killer, const Piece::Color target, int upordown)
+		{
+			if (currentGrabbed.GetColor() == killer)
+			{
+				for (auto& piece : pieces)
+				{
+					if (piece->GetColor() == target)
+					{
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ -1, upordown })
+						{
+							out.push_back(piece);
+						}
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ 1, upordown })
+						{
+							out.push_back(piece);
+						}
+					}
+				}
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			addKillables(Piece::Color::BLACK, Piece::Color::WHITE, 1);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			addKillables(Piece::Color::WHITE, Piece::Color::BLACK, -1);
+		}
+
+		return out;
+	}
+};
+
+struct KingKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		auto addKillables = [&](const Piece::Color killer, const Piece::Color target)
+		{
+			if (currentGrabbed.GetColor() == killer)
+			{
+				for (auto& piece : pieces)
+				{
+					if (piece->GetColor() == target)
+					{
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ -1, 0 }) out.push_back(piece);
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ 1, 0 }) out.push_back(piece);
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ 0, 1 }) out.push_back(piece);
+						if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ 0, -1 }) out.push_back(piece);
+					}
+				}
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			addKillables(Piece::Color::BLACK, Piece::Color::WHITE);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			addKillables(Piece::Color::WHITE, Piece::Color::BLACK);
+		}
+		return out;
+	}
+};
+
+struct KnightKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		auto addKillables = [&](const Piece::Color killer, const Piece::Color target)
+		{
+			if (currentGrabbed.GetColor() == killer)
+			{
+				for (auto& piece : pieces)
+				{
+					if (piece->GetColor() == target)
+					{
+						int possibleX[8] = { 2, 1, -1, -2, -2, -1, 1, 2 };
+						int possibleY[8] = { 1, 2, 2, 1, -1, -2, -2, -1 };
+
+						for (int i = 0; i < 8; i++)
+						{
+							if (screenToSquare(piece->position, board) == screenToSquare(position, board) + olc::vi2d{ possibleX[i], possibleY[i] }) 
+								out.push_back(piece);
+						}
+					}
+				}
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			addKillables(Piece::Color::BLACK, Piece::Color::WHITE);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			addKillables(Piece::Color::WHITE, Piece::Color::BLACK);
+		}
+		return out;
+	}
+};
+
+struct RookKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		olc::vi2d currentSquare = screenToSquare(position, board);
+		auto addKillables = [&](olc::vi2d direction, double magnitude, const Piece::Color killer, const Piece::Color target)
+		{
+			olc::vf2d current = currentSquare;
+			for (int i = 0; i < std::round(magnitude); i++)
+			{
+				current += direction;
+				if (currentGrabbed.GetColor() == killer)
+				{
+					for (auto& piece : pieces)
+					{
+						if (screenToSquare(piece->position, board) == current)
+						{
+							if (piece->GetColor() == target)
+							{
+								out.push_back(piece);
+								return;
+							}
+							return;
+						}
+						
+					}
+				}
+				
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			addKillables({ 0, 1 }, (double)board.squareSize.y - currentSquare.y, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ 0, -1 },(double)currentSquare.y, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ 1, 0 }, (double)board.squareSize.x - currentSquare.x, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ -1, 0 },(double)currentSquare.x, Piece::Color::WHITE, Piece::Color::BLACK);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			addKillables({ 0, 1 }, (double)board.squareSize.y - currentSquare.y, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ 0, -1 }, (double)currentSquare.y, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ 1, 0 }, (double)board.squareSize.x - currentSquare.x, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ -1, 0 }, (double)currentSquare.x, Piece::Color::BLACK, Piece::Color::WHITE);
+		}
+		
+		return out;
+	}
+};
+
+struct BishopKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		olc::vi2d currentSquare = screenToSquare(position, board);
+		auto addKillables = [&](olc::vi2d direction, double magnitude, const Piece::Color killer, const Piece::Color target)
+		{
+			olc::vf2d current = currentSquare;
+			for (int i = 0; i < std::round(magnitude); i++)
+			{
+				current += direction;
+				if (currentGrabbed.GetColor() == killer)
+				{
+					for (auto& piece : pieces)
+					{
+						if (screenToSquare(piece->position, board) == current)
+						{
+							if (piece->GetColor() == target)
+							{
+								out.push_back(piece);
+								return;
+							}
+							return;
+						}
+
+					}
+				}
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			double mag = std::hypot(currentSquare.x * -1, currentSquare.y * -1);
+			addKillables({ -1, -1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, board.nSquares.y - currentSquare.y);
+			addKillables({ 1, 1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, currentSquare.y * -1);
+			addKillables({ 1, -1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(currentSquare.x * - 1, board.nSquares.y - currentSquare.y);
+			addKillables({ -1, 1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			double mag = std::hypot(currentSquare.x * -1, currentSquare.y * -1);
+			addKillables({ -1, -1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, board.nSquares.y - currentSquare.y);
+			addKillables({ 1, 1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, currentSquare.y * -1);
+			addKillables({ 1, -1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(currentSquare.x * -1, board.nSquares.y - currentSquare.y);
+			addKillables({ -1, 1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+		}
+
+		return out;
+	}
+};
+
+struct QueenKillableFinder : public KillableFinder
+{
+	std::vector<Piece*> FindAndReturn(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) override
+	{
+		std::vector<Piece*> out;
+		olc::vi2d currentSquare = screenToSquare(position, board);
+		auto addKillables = [&](olc::vi2d direction, double magnitude, const Piece::Color killer, const Piece::Color target)
+		{
+			olc::vf2d current = currentSquare;
+			for (int i = 0; i < std::round(magnitude); i++)
+			{
+				current += direction;
+				if (currentGrabbed.GetColor() == killer)
+				{
+					for (auto& piece : pieces)
+					{
+						if (screenToSquare(piece->position, board) == current)
+						{
+							if (piece->GetColor() == target)
+							{
+								out.push_back(piece);
+								return;
+							}
+							return;
+						}
+
+					}
+				}
+			}
+		};
+
+		if (currentGrabbed.GetColor() == Piece::Color::WHITE)
+		{
+			addKillables({ 0, 1 }, (double)board.squareSize.y - currentSquare.y, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ 0, -1 }, (double)currentSquare.y, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ 1, 0 }, (double)board.squareSize.x - currentSquare.x, Piece::Color::WHITE, Piece::Color::BLACK);
+			addKillables({ -1, 0 }, (double)currentSquare.x, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			double mag = std::hypot(currentSquare.x * -1, currentSquare.y * -1);
+			addKillables({ -1, -1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, board.nSquares.y - currentSquare.y);
+			addKillables({ 1, 1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, currentSquare.y * -1);
+			addKillables({ 1, -1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+
+			mag = std::hypot(currentSquare.x * -1, board.nSquares.y - currentSquare.y);
+			addKillables({ -1, 1 }, mag, Piece::Color::WHITE, Piece::Color::BLACK);
+		}
+		else if (currentGrabbed.GetColor() == Piece::Color::BLACK)
+		{
+			addKillables({ 0, 1 }, (double)board.squareSize.y - currentSquare.y, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ 0, -1 }, (double)currentSquare.y, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ 1, 0 }, (double)board.squareSize.x - currentSquare.x, Piece::Color::BLACK, Piece::Color::WHITE);
+			addKillables({ -1, 0 }, (double)currentSquare.x, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			double mag = std::hypot(currentSquare.x * -1, currentSquare.y * -1);
+			addKillables({ -1, -1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, board.nSquares.y - currentSquare.y);
+			addKillables({ 1, 1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(board.nSquares.x - currentSquare.x, currentSquare.y * -1);
+			addKillables({ 1, -1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+
+			mag = std::hypot(currentSquare.x * -1, board.nSquares.y - currentSquare.y);
+			addKillables({ -1, 1 }, mag, Piece::Color::BLACK, Piece::Color::WHITE);
+		}
+
+		return out;
+	}
+};
+
+Piece::Piece(const olc::vf2d& position, Color color, MovementValidator* validator, KillableFinder* killableFinder) :
+	position{ position }, color{ color }, movementValidator{ validator }, killableFinder{ killableFinder }
 {
 }
 
-Piece::~Piece() { delete movementValidator; };
+Piece::~Piece() { delete movementValidator; delete killableFinder; };
 
 std::vector<olc::vi2d> Piece::GetValidSquares(const std::vector<Piece*>& pieces, const olc::vf2d& position, const Board& board) const
 {
 	return movementValidator->GetOccupiableSquares(pieces, position, *this, board);
 }
 
+std::vector<Piece*> Piece::GetKillablePieces(const std::vector<Piece*>& pieces, const Piece& currentGrabbed, const olc::vf2d& position, const Board& board) const
+{
+	return killableFinder->FindAndReturn(pieces, currentGrabbed, position, board);
+}
+
 Pawn::Pawn(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new PawnMovementValidator{} }
+	Piece{ position, color, new PawnMovementValidator{}, new PawnKillableFinder{} }
 {
 }
 
 King::King(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new KingMovementValidator{} }
+	Piece{ position, color, new KingMovementValidator{}, new KingKillableFinder{} }
 {
 }
 
 Queen::Queen(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new QueenMovementValidator{} }
+	Piece{ position, color, new QueenMovementValidator{}, new QueenKillableFinder{} }
 {
 }
 
 Rook::Rook(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new RookMovementValidator{} }
+	Piece{ position, color, new RookMovementValidator{}, new RookKillableFinder{} }
 {
 }
 
 Bishop::Bishop(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new BishopMovementValidator{} }
+	Piece{ position, color, new BishopMovementValidator{}, new BishopKillableFinder{} }
 {
 }
 
 Knight::Knight(const olc::vf2d& position, Color color) :
-	Piece{ position, color, new KnightMovementValidator{} }
+	Piece{ position, color, new KnightMovementValidator{}, new KnightKillableFinder{} }
 {
 }
 
@@ -531,7 +845,6 @@ private:
 				}
 			}
 		}
-
 		else
 		{
 			for (auto& piece : pieces)
@@ -564,7 +877,7 @@ private:
 	bool moving = true;
 };
 
-bool ReturnToLastPosition(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, Piece& piece, const Board& board)
+bool ValidateMovement(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, Piece& piece, const Board& board)
 {
 	if (pge->GetMouse(0).bReleased)
 	{
@@ -650,7 +963,17 @@ void DrawOccupiableSquares(olc::PixelGameEngine* pge, const std::vector<Piece*>&
 	{
 		pge->FillRectDecal(squareToScreen(square, board), board.squareSize, olc::Pixel{ 100, 250, 100, 80 });
 	}
-	
+}
+
+void DrawKillablePieces(olc::PixelGameEngine* pge, const std::vector<Piece*>& pieces, const olc::vf2d& lastPosition, const Board& board, const Piece& piece)
+{
+	std::vector<Piece*> killables = piece.GetKillablePieces(pieces, piece, lastPosition, board);
+
+	for (auto& killable : killables)
+	{
+		olc::vi2d pos = squareToScreen(screenToSquare(killable->position, board), board);
+		pge->FillRectDecal(pos, board.squareSize, olc::Pixel{ 250, 100, 100, 80 });
+	}
 }
 
 class ChessGame : public olc::PixelGameEngine
@@ -726,7 +1049,7 @@ public:
 			controller.LetUserDragDropPieces(pieces, board);
 			if (lastGrabbed != nullptr)
 			{
-				returned = ReturnToLastPosition(this, pieces, controller.GetLastPosition(), *lastGrabbed, board);
+				returned = ValidateMovement(this, pieces, controller.GetLastPosition(), *lastGrabbed, board);
 			}
 			controller.UpdateTurn(this, 10.0, returned, state);
 
@@ -736,6 +1059,7 @@ public:
 			if (currentGrabbed != nullptr)
 			{
 				DrawOccupiableSquares(this, pieces, controller.GetLastPosition(), board, *currentGrabbed);
+				DrawKillablePieces(this, pieces, controller.GetLastPosition(), board, *currentGrabbed);
 			}
 
 			for (int i = 0; i < nTotalPieces; i++)
